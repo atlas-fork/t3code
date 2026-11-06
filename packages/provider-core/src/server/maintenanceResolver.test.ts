@@ -1095,19 +1095,24 @@ it.layer(
     }),
   );
 
-  it.effect.each(["wrapper", "symlink"])(
-    "keeps a mise-owned %s in a native install location manual-only",
+  it.effect.each(["mise wrapper", "mise symlink", "multicall symlink"])(
+    "keeps a %s in a native install location manual-only",
     (launcher, { skip }) => {
-      if (windowsHost || (launcher === "symlink" && !symlinksSupported)) skip();
+      if (windowsHost || (launcher !== "mise wrapper" && !symlinksSupported)) skip();
       return Effect.gen(function* () {
         const tempDir = yield* makeTempDir("t3-native-mise");
         const nativePath = NodePath.join(tempDir, ".local", "bin", "native-package-tool");
-        if (launcher === "wrapper") {
+        if (launcher === "mise wrapper") {
           writeExecutable(nativePath);
           NodeFS.writeFileSync(
             nativePath,
             '#!/bin/sh\nexec mise x native-package-tool -- native-package-tool "$@"\n',
           );
+        } else if (launcher === "multicall symlink") {
+          const manager = NodePath.join(tempDir, "manager", "bin", "manager");
+          writeExecutable(manager);
+          NodeFS.mkdirSync(NodePath.dirname(nativePath), { recursive: true });
+          NodeFS.symlinkSync(manager, nativePath);
         } else {
           const target = NodePath.join(
             tempDir,

@@ -222,6 +222,10 @@ export function normalizeCommandPath(commandPath: string): string {
   return commandPath.replaceAll("\\", "/").toLowerCase();
 }
 
+function commandName(commandPath: string): string {
+  return (normalizeCommandPath(commandPath).split("/").pop() ?? "").replace(/\.exe$/, "");
+}
+
 /**
  * Vite+ shims live in `<VP_HOME>/bin`: `~/.vite-plus` by default,
  * `~/.local/share/vite-plus` with the XDG layout, and `%LOCALAPPDATA%\vite-plus`
@@ -532,10 +536,16 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
           : {}),
       })
     : manual;
+  // A launcher linked to a differently named program, such as a version manager that
+  // dispatches on argv[0], belongs to that program rather than the provider's updater.
+  const launchesAnotherProgram =
+    commandName(context.realCommandPath) !== commandName(context.resolvedCommandPath) &&
+    !nativeUpdate?.isCommandPath?.(context.realCommandPath);
   // A native-looking launcher can still delegate to an npm- or mise-owned install.
   if (
     nativeUpdate?.isCommandPath &&
     commandPaths.some(nativeUpdate.isCommandPath) &&
+    !launchesAnotherProgram &&
     !npmGlobalPrefixFromCommandPath(context.realCommandPath, packageName) &&
     !commandPaths.some(isMiseCommandPath) &&
     !(yield* isMiseWrapperScript(context))
@@ -546,6 +556,7 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
   // project, so the provider's own updater could act on the wrong install.
   const fallback =
     nativeUpdate?.requiresCommandPath ||
+    launchesAnotherProgram ||
     commandPaths.some((commandPath) => normalizeCommandPath(commandPath).includes("/node_modules/"))
       ? manual
       : native;
