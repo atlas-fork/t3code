@@ -1132,6 +1132,46 @@ it.layer(
     },
   );
 
+  it.effect.each(["ovm launcher", "native launcher linked to ovm"])(
+    "updates an ovm-managed %s with ovm, not the provider's updater",
+    (launcher, { skip }) => {
+      if (windowsHost || !symlinksSupported) skip();
+      return Effect.gen(function* () {
+        const tempDir = yield* makeTempDir("t3-ovm");
+        const ovmBinary = NodePath.join(tempDir, ".ovm", "bin", "ovm");
+        writeExecutable(ovmBinary);
+        const ovmLauncher = NodePath.join(tempDir, ".ovm", "bin", "claude");
+        NodeFS.symlinkSync(ovmBinary, ovmLauncher);
+        const nativeLauncher = NodePath.join(tempDir, ".local", "bin", "claude");
+        NodeFS.mkdirSync(NodePath.dirname(nativeLauncher), { recursive: true });
+        NodeFS.symlinkSync(ovmLauncher, nativeLauncher);
+        const nativeClaudeUpdate = makePackageManagedProviderMaintenanceResolver({
+          provider: driver("claudeAgent"),
+          npmPackageName: "@anthropic-ai/claude-code",
+          nativeUpdate: {
+            args: ["update"],
+            isCommandPath: isNativeTestCommandPath("/.local/bin/claude"),
+          },
+        });
+
+        const capabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(
+          nativeClaudeUpdate,
+          {
+            binaryPath: launcher === "ovm launcher" ? ovmLauncher : nativeLauncher,
+            env: { PATH: "" },
+          },
+        ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, noSpawn));
+
+        expect(capabilities.update).toMatchObject({
+          command: "ovm update claude",
+          executable: NodeFS.realpathSync(ovmBinary),
+          args: ["update", "claude"],
+          lockKey: "ovm",
+        });
+      });
+    },
+  );
+
   it.effect.skipIf(!symlinksSupported || windowsHost)(
     "updates an npm-owned launcher in a native install location with npm",
     () =>

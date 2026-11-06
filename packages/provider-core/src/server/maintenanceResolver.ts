@@ -255,6 +255,19 @@ function isMiseCommandPath(commandPath: string): boolean {
   );
 }
 
+const OVM_PRODUCTS = new Set(["claude", "codex", "pi"]);
+
+function commandName(commandPath: string): string {
+  return (normalizeCommandPath(commandPath).split("/").pop() ?? "").replace(/\.exe$/, "");
+}
+
+/** ovm launchers are symlinks to its multicall binary, which dispatches on argv[0]. */
+function ovmManagedProduct(context: ProviderMaintenanceResolutionContext): string | null {
+  if (commandName(context.realCommandPath) !== "ovm") return null;
+  const product = commandName(context.resolvedCommandPath);
+  return OVM_PRODUCTS.has(product) ? product : null;
+}
+
 const winGetClaudeCommandPath =
   /^[a-z]:\/(?:users\/[^/]+\/appdata\/local\/microsoft|program files(?: \(x86\))?)\/winget\/(?:links|packages\/anthropic\.claudecode_[^/]+)\/claude\.exe$/;
 
@@ -514,6 +527,20 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
         ),
         Effect.provideContext(services),
       ),
+    });
+  }
+
+  // The provider's own updater would replace ovm's pinned install behind its back.
+  const ovmProduct = ovmManagedProduct(context);
+  if (ovmProduct) {
+    return makeProviderMaintenanceCapabilities({
+      provider: definition.provider,
+      packageName,
+      updateExecutable: context.realCommandPath,
+      updateArgs: ["update", ovmProduct],
+      updateLockKey: "ovm",
+      updateCommand: `ovm update ${ovmProduct}`,
+      env: context.env,
     });
   }
 
